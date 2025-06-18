@@ -1,4 +1,5 @@
 #include "prt_buildef.h"
+#include "prt_asm_arm_external.h"
 
     .global   OsResetVector
     .global   mmu_init
@@ -95,10 +96,40 @@ OsEl2SwitchToEl1:
     ERET
     
 Start:
+#if defined(OS_OPTION_SMP)
+    OsAsmGetCoreId  x0 // 读取核号
+    LDR x4, =g_cfgPrimaryCore
+    LDR w4, [x4]
+    CMP w0, w4
+    BNE OsSlaveCoreProcess
+#endif
     LDR    x1, =__os_sys_sp_end
     BIC    sp, x1, #0xf
 
     BL     mmu_init
+
+#if !defined(OS_OPTION_SMP)
+    B      OsResetVector
+#endif
+    BL    OsSetValidAllCoresMask
+    B     OsMasterCoreProcess
+
+OsSlaveCoreProcess:
+    OsAsmGetCoreId  x0 // 读取核号
+    MOV x2, #0x1000
+    mul x0, x0, x2
+    LDR x1, =__os_sys_sp_end
+    SUB x1, x1, x0
+    BIC sp, x1, #0xf
+
+OsSlaveStart:
+#ifdef OS_OPTION_OPENAMP
+    BL     mmu_init
+#endif
+
+    B      OsResetVector
+
+OsMasterCoreProcess:
     B      OsResetVector
 
 OsEnterReset:

@@ -62,6 +62,7 @@ OS_SEC_BSS uintptr_t g_gicrStride;
 /* 存放Core Map值 */
 #if defined(OS_OPTION_SMP)
 OS_SEC_DATA union GicCoreMap g_gicCoreMap[OS_MAX_CORE_NUM] = {0};
+OS_SEC_DATA U32 g_gicCoreInit[OS_MAX_CORE_NUM] = {0};
 #else
 OS_SEC_DATA union GicCoreMap g_gicCoreMap = {0};
 #endif
@@ -178,9 +179,8 @@ OS_SEC_TEXT void OsGicTrigIntToCores(U32 intId, U32 targetList)
     U32 coreId;
 #if defined(OS_OPTION_SMP)
     U8 aff0;
-#else
-    U16 targetMask = 0x1;
 #endif
+    U16 targetMask = 0x1;
     
     PRT_DSB();
     for (coreId = 0; (coreId < OS_MAX_CORE_NUM) && (targetList != 0); coreId++) {
@@ -188,13 +188,20 @@ OS_SEC_TEXT void OsGicTrigIntToCores(U32 intId, U32 targetList)
             iccSgirEl1.value           = 0;   // 每个位域默认为0
             iccSgirEl1.bits.intId      = intId;
 #if defined(OS_OPTION_SMP)
-            aff0                       = g_gicCoreMap[coreId].bits.aff0;
-            iccSgirEl1.bits.targetlist = (U16)(1U << OS_GET_8BIT_LOW_4BIT((U32)aff0));
-            iccSgirEl1.bits.aff1       = g_gicCoreMap[coreId].bits.aff1;
-            iccSgirEl1.bits.aff2       = g_gicCoreMap[coreId].bits.aff2;
-            iccSgirEl1.bits.aff3       = g_gicCoreMap[coreId].bits.aff3;
-            iccSgirEl1.bits.rs         = OS_GET_8BIT_HIGH_4BIT((U32)aff0);
-            targetList &= ~(1U << coreId);
+            if (g_gicCoreInit[coreId]) {
+                aff0                       = g_gicCoreMap[coreId].bits.aff0;
+                iccSgirEl1.bits.targetlist = (U16)(1U << OS_GET_8BIT_LOW_4BIT((U32)aff0));
+                iccSgirEl1.bits.aff1       = g_gicCoreMap[coreId].bits.aff1;
+                iccSgirEl1.bits.aff2       = g_gicCoreMap[coreId].bits.aff2;
+                iccSgirEl1.bits.aff3       = g_gicCoreMap[coreId].bits.aff3;
+                iccSgirEl1.bits.rs         = OS_GET_8BIT_HIGH_4BIT((U32)aff0);
+                targetList &= ~(1U << coreId);
+            } else {
+                iccSgirEl1.bits.targetlist = targetMask;
+                iccSgirEl1.bits.aff1       = coreId;
+                iccSgirEl1.bits.aff2       = g_gicCoreMap[THIS_CORE()].bits.aff2;
+                iccSgirEl1.bits.aff3       = g_gicCoreMap[THIS_CORE()].bits.aff3;
+            }
 #else
             iccSgirEl1.bits.targetlist = targetMask;
             iccSgirEl1.bits.aff1       = coreId;

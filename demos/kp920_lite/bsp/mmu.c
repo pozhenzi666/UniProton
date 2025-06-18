@@ -7,9 +7,12 @@
 #include "prt_sys.h"
 #include "prt_task.h"
 #include "cpu_config.h"
+#include "prt_cpu_external.h"
 
 extern U64 g_mmu_page_begin;
 extern U64 g_mmu_page_end;
+extern U32 g_cfgPrimaryCore;
+static OS_SEC_BSS U64 g_mmu_tcr = 0;
 
 typedef enum {
     MMU_OPENAMP_TYPE = 0,
@@ -278,7 +281,6 @@ static U32 mmu_setup_pgtables(mmu_mmap_region_s *mem_map, U32 mem_region_num, U6
 {
     U32 i;
     U32 ret;
-    U64 tcr;
     U64 *new_table = NULL;
     
     g_mmu_ctrl.tlb_addr = tlb_addr;
@@ -287,7 +289,7 @@ static U32 mmu_setup_pgtables(mmu_mmap_region_s *mem_map, U32 mem_region_num, U6
     g_mmu_ctrl.granule = granule;
     g_mmu_ctrl.start_level = 0;
     
-    tcr = mmu_get_tcr(NULL, &g_mmu_ctrl.va_bits);
+    g_mmu_tcr = mmu_get_tcr(NULL, &g_mmu_ctrl.va_bits);
     
     if (g_mmu_ctrl.granule == MMU_GRANULE_4K) {
         if (g_mmu_ctrl.va_bits < MMU_BITS_39) {
@@ -318,9 +320,7 @@ static U32 mmu_setup_pgtables(mmu_mmap_region_s *mem_map, U32 mem_region_num, U6
             return ret;
         }
     }
-    
-    mmu_set_ttbr_tcr_mair(g_mmu_ctrl.tlb_addr, tcr, MEMORY_ATTRIBUTES);
-    
+
     return 0;
 }
 
@@ -333,12 +333,23 @@ static S32 mmu_setup(void)
     page_addr = (U64)&g_mmu_page_begin;
     page_len = (U64)&g_mmu_page_end - (U64)&g_mmu_page_begin;
     
+#if defined(OS_OPTION_SMP)
+    if (OsGetCoreID() == g_cfgPrimaryCore) {
+        ret = mmu_setup_pgtables(g_mem_map_info, (sizeof(g_mem_map_info) / sizeof(mmu_mmap_region_s)),
+                                page_addr, page_len, MMU_GRANULE_4K);
+        if (ret) {
+            return ret;
+        }
+    }
+#else
     ret = mmu_setup_pgtables(g_mem_map_info, (sizeof(g_mem_map_info) / sizeof(mmu_mmap_region_s)),
                              page_addr, page_len, MMU_GRANULE_4K);
     if (ret) {
         return ret;
     }
-    
+#endif
+
+    mmu_set_ttbr_tcr_mair(page_addr, g_mmu_tcr, MEMORY_ATTRIBUTES);
     return 0;
 }
 
