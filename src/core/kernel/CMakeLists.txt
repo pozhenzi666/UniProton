@@ -5,7 +5,7 @@ add_subdirectory(task)
 add_subdirectory(tick)
 add_subdirectory(timer)
 add_subdirectory(spinlock)
-if((${CONFIG_OS_ARCH_ARMV8}) OR (${CONFIG_OS_ARCH_X86_64}) OR (${CONFIG_OS_ARCH_RISCV64}))
+if((${CONFIG_OS_ARCH_ARMV8}) OR (${CONFIG_OS_ARCH_X86_64}) OR (${CONFIG_OS_ARCH_RISCV64}) OR (${CONFIG_OS_ARCH_ARMV7_R}))
     add_subdirectory(sched)
 endif()
 

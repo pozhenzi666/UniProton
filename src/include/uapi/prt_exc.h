@@ -34,6 +34,10 @@
 #include "./hw/riscv64/os_exc_riscv64.h"
 #endif
 
+#if (OS_HARDWARE_PLATFORM == OS_CORTEX_R5)
+#include "./hw/armv7-r/os_exc_armv7_r.h"
+#endif
+
 #ifdef __cplusplus
 #if __cplusplus
 extern "C" {

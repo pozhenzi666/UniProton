@@ -22,7 +22,9 @@
  * 模块间宏定义
  */
 /* 各个board有差异的中断配置 */
+#ifndef MAX_NNSPI_ID
 #define MAX_NNSPI_ID             31 // 系统可支持的最大NNSPI的中断号，为了代码归一，不支持NNSPI场景配置成MAX_PPI_ID相同
+#endif
 #define MIN_SPI_ID               32 // 系统可支持的最小SPI的中断号
 #define GICD_SPI_IROUTERN_L_ADDR (GIC_GICD_BASE + 0x6000U) // GIC亲和性配置寄存器
 

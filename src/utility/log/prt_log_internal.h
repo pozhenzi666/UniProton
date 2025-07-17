@@ -38,7 +38,7 @@ struct logHeader {
     U8 logContent[];
 };
 
-#if defined(OS_ARCH_ARMV7_M)
+#if defined(OS_ARCH_ARMV7_M) || defined(OS_ARCH_ARMV7_R)
     #define STORE_FENCE() __asm__ __volatile__ ("dmb sy" : : : "memory");
     #define M_FENCE() __asm__ __volatile__ ("dmb sy" : : : "memory");
     #define LOAD_FENCE() __asm__ __volatile__ ("dmb sy" : : : "memory"); 

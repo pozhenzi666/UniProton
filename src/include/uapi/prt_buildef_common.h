@@ -25,7 +25,8 @@
 #define OS_ARMV8            0x02
 #define OS_X86_64           0x03
 #define OS_RISCV64          0x04
-#define OS_PLATFORM_INVALID 0x05
+#define OS_CORTEX_R5        0x05
+#define OS_PLATFORM_INVALID 0x06
 
 /* To define OS_CPU_TYPE */
 /* 编译器有个bug, 未定义的宏的数值默认是0，所以不用使用'0' */
@@ -44,7 +45,8 @@
 #define OS_RV64_VISIONFIVE2 0x0d
 #define OS_KP920_LITE       0x0e
 #define OS_HI3095           0x0f
-#define OS_CPU_TYPE_INVALID 0x10
+#define OS_D9_SECURE        0x10
+#define OS_CPU_TYPE_INVALID 0x11
 
 #ifndef INIT_SEC_L4_TEXT
 #define INIT_SEC_L4_TEXT 

@@ -10,7 +10,7 @@ home_path = os.path.dirname(build_dir)
 config_dir = os.path.join(home_path,'config.xml')
 kbuild_path = '%s/cmake/common/build_auxiliary_script' % home_path
 
-cpus_ = {'all': ['clean', 'm4', 'raspi4', 'hi3093', 'hi3095', 'atlasa1', 'kp920', 'kp920_lite', 'x86_64', 'rk3568_jailhouse', 'rk3588', 'ascend310b', 'uvp', 'rv64virt', 'ds-d1s', 'e2000q','visionfive2'],
+cpus_ = {'all': ['clean', 'm4', 'raspi4', 'hi3093', 'hi3095', 'atlasa1', 'kp920', 'kp920_lite', 'x86_64', 'rk3568_jailhouse', 'rk3588', 'ascend310b', 'uvp', 'rv64virt', 'ds-d1s', 'e2000q','visionfive2', 'd9_secure'],
          'clean': ['clean'],
          'm4': ['m4'],
          'raspi4': ['raspi4'],
@@ -28,7 +28,8 @@ cpus_ = {'all': ['clean', 'm4', 'raspi4', 'hi3093', 'hi3095', 'atlasa1', 'kp920'
          'ds-d1s': ['ds-d1s'],
          'e2000q': ['e2000q'],
 	     'milkvduol' : ['milkvduol'],
-         'visionfive2' : ['visionfive2']
+         'visionfive2' : ['visionfive2'],
+	     'd9_secure': ['d9_secure']
          }
 
 cpu_plat = {'m4': ['cortex'],
@@ -47,5 +48,6 @@ cpu_plat = {'m4': ['cortex'],
             'ds-d1s': ['riscv64'],
             'e2000q': ['armv8'],
 	        'milkvduol' : ['riscv64'],
-            'visionfive2': ['riscv64']
+            'visionfive2': ['riscv64'],
+            'd9_secure': ['cortex_r5']
            }

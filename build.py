@@ -80,6 +80,8 @@ class Compile:
             self.build_machine_platform = 'arm64'
         elif platform.uname()[-1] == 'x86_64':
             self.build_machine_platform = 'x86'
+        elif platform.uname()[-1] == 'arm':
+            self.build_machine_platform = 'arm'
         else:
             self.build_machine_platform = 'riscv64'
             self.cmake_env_path = os.path.dirname(

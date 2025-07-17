@@ -33,4 +33,8 @@
 #include "../cpu/riscv64/common/os_attr_riscv64_external.h"
 #endif
 
+#if defined(OS_ARCH_ARMV7_R)
+#include "../cpu/armv7-r/common/os_attr_armv7_r_external.h"
+#endif
+
 #endif /* PRT_ATTR_EXTERNAL_H */
