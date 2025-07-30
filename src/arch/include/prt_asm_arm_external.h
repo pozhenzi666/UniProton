@@ -15,8 +15,14 @@
 #ifndef PRT_ASM_ARM_EXTERNAL_H
 #define PRT_ASM_ARM_EXTERNAL_H
 
+#include <prt_buildef.h>
+
 #if defined(OS_ARCH_ARMV8)
 #include "../cpu/armv8/common/os_asm_cpu_armv8_external.h"
+#endif
+
+#if defined(OS_ARCH_ARMV7_R)
+#include "../cpu/armv7-r/common/os_asm_armv7_r_external.h"
 #endif
 
 /*

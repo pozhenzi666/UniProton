@@ -24,8 +24,10 @@
 #define GIC_IPRIORITY_HIGH_BIT    4
 
 #if (OS_GIC_VER == 2)
+#ifndef GIC_DIST_BASE
 #define GIC_DIST_BASE   0xff841000
-#define GIC_CPU_BASE    0xff842000
+#endif
+#define GIC_CPU_BASE    (GIC_DIST_BASE + 0x1000U)
 #define IAR_MASK        0x3FFU
 #define GICC_IAR		(GIC_CPU_BASE + 0xc)
 #define GICC_EOIR		(GIC_CPU_BASE + 0x10)

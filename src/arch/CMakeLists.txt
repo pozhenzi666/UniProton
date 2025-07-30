@@ -1,5 +1,5 @@
 add_subdirectory(cpu)
-if(${CONFIG_OS_ARCH_ARMV8})
+if((${CONFIG_OS_ARCH_ARMV8}) OR (${CONFIG_OS_ARCH_ARMV7_R}))
     add_subdirectory(drv)
 endif()
 
