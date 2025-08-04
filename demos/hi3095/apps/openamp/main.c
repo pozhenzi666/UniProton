@@ -2,11 +2,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <math.h>
+#include <float.h>
+#include <stdbool.h>
 #include "securec.h"
 #include "prt_config.h"
 #include "prt_config_internal.h"
 #include "prt_hwi.h"
 #include "prt_task.h"
+#include "prt_sem.h"
 #include "prt_log.h"
 #include "test.h"
 #include "rpmsg_backend.h"
@@ -148,6 +152,102 @@ extern void interrupt_jitter_test_entry();
 extern void cyclictest_entry(U64 interval, U64 loopNums);
 #endif
 
+#if defined(OS_OPTION_SMP) && defined(SMP_CXX_TESTCASE)
+extern void test_smp_cxx();
+extern void test_smp_rcv_data();
+extern SemHandle smp_msg_sem;
+
+#if defined(OS_SUPPORT_LIBXML2)
+extern void test_smp_xml2();
+#endif
+
+void master_task_entry()
+{
+    test_smp_cxx();
+}
+
+void slave_task_entry()
+{
+#if defined(OS_SUPPORT_LIBXML2)
+    test_smp_xml2();
+#endif
+    test_smp_rcv_data();
+}
+
+void master_task_init()
+{
+    U32 ret;
+    U8 ptNo = OS_MEM_DEFAULT_FSC_PT;
+    struct TskInitParam param = {0};
+    TskHandle testTskHandle;
+
+    // task 2
+    param.stackAddr = (uintptr_t)PRT_MemAllocAlign(0, ptNo, 0x3000, MEM_ADDR_ALIGN_016);
+    param.taskEntry = (TskEntryFunc)master_task_entry;
+    param.taskPrio = 15;
+    param.name = "master_task";
+    param.stackSize = 0x3000;
+
+    ret = PRT_TaskCreate(&testTskHandle, &param);
+    if (ret) {
+        PRT_Printf("PRT_TaskCreate master task failed, ret: %d\n", ret);
+        return;
+    }
+
+    ret = PRT_TaskResume(testTskHandle);
+    if (ret) {
+        PRT_Printf("PRT_TaskResume master task failed, ret: %d\n", ret);
+    }
+}
+
+void slave_task_init(U32 slaveId)
+{
+    U32 ret;
+    U8 ptNo = OS_MEM_DEFAULT_FSC_PT;
+    struct TskInitParam param = {0};
+    TskHandle testTskHandle;
+    // task 1
+    param.stackAddr = PRT_MemAllocAlign(0, ptNo, 0x3000, MEM_ADDR_ALIGN_016);
+    param.taskEntry = (TskEntryFunc)slave_task_entry;
+    param.taskPrio = 20;
+    param.name = "slave_task";
+    param.stackSize = 0x3000;
+
+    ret = PRT_TaskCreate(&testTskHandle, &param);
+    if (ret) {
+        PRT_Printf("PRT_TaskCreate slave task failed, ret: %d\n", ret);
+        return;
+    }
+
+    ret = PRT_TaskCoreBind(testTskHandle, 1 << (PRT_GetPrimaryCore() + slaveId));
+    if (ret) {
+        PRT_Printf("PRT_TaskCoreBind slave task failed, ret: %d\n", ret);
+        return;
+    }
+
+    ret = PRT_TaskResume(testTskHandle);
+    if (ret) {
+        PRT_Printf("PRT_TaskResume slave task failed, ret: %d\n", ret);
+    }
+}
+
+void smp_test()
+{
+    U32 ret = PRT_SemCreate(0, &smp_msg_sem);
+    if (ret) {
+        PRT_Printf("SMP SemCreate failed, ret: %d\n", ret);
+        return;
+    }
+
+    master_task_init();
+    for (U32 slaveId = 1; slaveId < OS_SYS_CORE_RUN_NUM; slaveId++) {
+        slave_task_init(slaveId);
+    }
+
+    PRT_SemDelete(smp_msg_sem);
+}
+#endif
+
 void TestTaskEntry()
 {
 #if defined(OS_OPTION_OPENAMP)
@@ -170,6 +270,10 @@ void TestTaskEntry()
 
 #if defined(SOEM_DEMO) && defined(OS_SUPPORT_SOEM)
     soem_test("eth3");
+#endif
+
+#if defined(OS_OPTION_SMP) && defined(SMP_CXX_TESTCASE)
+    smp_test();
 #endif
 
 #if defined(POSIX_TESTCASE) || defined(CXX_TESTCASE) || defined(EIGEN_TESTCASE) || defined(RHEALSTONE_TESTCASE)
@@ -195,6 +299,10 @@ void TestTaskEntry()
 
 #if defined(CYCLIC_TESTCASE)
     cyclictest_entry(1000, 1000);
+#endif
+
+#if defined(RCV_TEST)
+    rcv_test();
 #endif
 }
 

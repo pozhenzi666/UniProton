@@ -5,9 +5,9 @@
 
 #define MMU_IMAGE_ADDR             0xb3000000ULL
 #define MMU_GIC_ADDR               0x1a000000ULL
-#define MMU_UART_ADDR              0x18340000ULL
+#define MMU_UART_ADDR              0x18330000ULL
 #define MMU_OPENAMP_ADDR           0xb0000000ULL
-#define OPENAMP_SHM_SIZE           0x100000
+#define OPENAMP_SHM_SIZE           0x1000000
 #define MMU_LOG_MEM_ADDR           0xd3000000ULL
 #define MMU_DRIVER_ADDR1           0x0c000000ULL
 #define MMU_DRIVER_ADDR2           0x08600000ULL
