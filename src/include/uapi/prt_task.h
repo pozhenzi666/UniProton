@@ -78,6 +78,9 @@ extern "C" {
 #define COMPOSE_PID(coreid, handle) \
     ((((U32)(coreid)) << OS_TSK_TCB_INDEX_BITS) + ((U8)(handle))) /* 将(coreid)与(handle)组成PID,UIPC不使用该接口 */
 
+#define TM_NOW 0
+#define TM_INFINITE 0
+
 /*
  * 支持的优先级(0~31)，OS系统IDLE线程使用最低优先级(31)，用户不能使用。
  * 可用的任务优先级宏定义。
@@ -588,6 +591,13 @@ extern "C" {
  * 任务暂停，等待任何信号处理完成
  */
 #define OS_TSK_RW_PEND 0x40000
+
+/*
+ * 任务或任务控制块状态标志。
+ *
+ * 任务设置运行周期
+ */
+#define OS_TSK_SET_PERIODIC 0x80000
 
 /*
  * 任务调度策略
@@ -1599,6 +1609,84 @@ extern U32 PRT_TaskGetNrRunningOnCore(U32 coreId, U32 *nrRunning);
 extern void PRT_TaskLockNoIntLock(void);
 extern U32 PRT_TaskCoreBind(TskHandle taskPid, U32 coreMask);
 #endif
+
+#if defined(OS_OPTION_POSIX_SIGNAL)
+/*
+ * @brief 设置任务的周期性执行
+ *
+ * @par 描述
+ * 设置任务的执行周期和起始时间，使任务可以按指定的周期执行。
+ *
+ * @attention  无
+ *
+ * @param taskPid [IN]  类型#TskHandle，任务ID。
+ * @param idate [IN]  类型#U32，任务周期执行的起始时间。
+ * @param period [IN]  类型#U32，任务执行的周期。
+ *
+ * @par 依赖
+ * <ul><li>prt_task.h：该接口声明所在的头文件。</li></ul>
+ * @see PRT_TaskSetPeriodic
+ */
+extern int PRT_TaskSetPeriodic(TskHandle taskPid, U32 idate, U32 period);
+
+/*
+ * @brief 创建任务，但不激活任务, 该任务资源可回收。
+ *
+ * @par 描述
+ * 使任务按指定的周期等待一段时间，然后再继续执行下一次任务。
+ *
+ * @attention
+ * <ul>
+ * <li>任务的等待周期通过PRT_TaskSetPeriodic设置。</li>
+ * </ul>
+ *
+ * @param overruns [OUT]  类型#U32 *，等待周期内任务定时器的超时次数。
+ *
+ * @par 依赖
+ * <ul><li>prt_task.h：该接口声明所在的头文件。</li></ul>
+ * @see PRT_TaskWaitPeriod
+ */
+extern int PRT_TaskWaitPeriod(U32 *overruns);
+#endif
+
+/*
+ * @brief 等待指定任务结束并回收其资源。
+ *
+ * @par 描述
+ * 阻塞当前任务直到指定的任务结束，并回收其资源。
+ *
+ * @attention  无
+ *
+ * @param taskPid [IN]  类型#TskHandle，任务ID。
+ *
+ * @par 依赖
+ * <ul><li>prt_task.h：该接口声明所在的头文件。</li></ul>
+ * @see PRT_TaskJoin
+ */
+extern int PRT_TaskJoin(TskHandle taskPid);
+
+/*
+ * @brief 创建任务，该任务资源可以被主动回收。
+ *
+ * @par 描述
+ * 创建一个任务，该任务资源可以被主动回收。
+ * 该任务不加入就绪队列，只处于挂起状态，用户需要激活该任务需要通过调用PRT_TaskResume函数将其激活。
+ *
+ * @attention
+ * <ul>
+ * <li>任务的回收通过PRT_TaskJoin进行。</li>
+ * </ul>
+ *
+ * @param taskPid   [OUT] 类型#TskHandle *，保存任务PID。
+ * @param initParam [IN]  类型#struct TskInitParam *，任务创建参数，
+ * 其结构体中的成员参数stackAddr传入时必须进行初始化，若不采用用户配置的独立任务栈进行栈空间分配，
+ * 该成员必须初始化为0。
+ *
+ * @par 依赖
+ * <ul><li>prt_task.h：该接口声明所在的头文件。</li></ul>
+ * @see PRT_TaskJoin
+ */
+extern U32 PRT_TaskCreate_Joinable(TskHandle *taskPid, struct TskInitParam *initParam);
 
 #ifdef __cplusplus
 #if __cplusplus

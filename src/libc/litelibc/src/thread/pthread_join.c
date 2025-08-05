@@ -86,6 +86,11 @@ int PRT_PthreadTimedJoin(TskHandle thread, void **status, U32 timeout)
     return ret;
 }
 
+int PRT_TaskJoin(TskHandle taskPid)
+{
+    return PRT_PthreadTimedJoin(taskPid, NULL, OS_WAIT_FOREVER);
+}
+
 int __pthread_timedjoin_np(pthread_t thread, void **status, const struct timespec *at)
 {
     U32 ret;

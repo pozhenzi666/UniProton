@@ -14,3 +14,7 @@ add_library_ex(prt_smp_task_del.c)
 add_library_ex(prt_smp_task_init.c)
 add_library_ex(prt_smp_task_suspend.c)
 add_library_ex(prt_smp_psci.c)
+
+if(${CONFIG_OS_OPTION_POSIX_SIGNAL})
+add_library_ex(prt_task_period.c)
+endif()
