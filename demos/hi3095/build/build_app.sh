@@ -8,7 +8,7 @@ else
     export APP=hi3095
 fi
 
-if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" ]]
+if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]]
 then
     export CXX_TOOLCHAIN_PATH=/opt/openeuler/oecore-x86_64/sysroots/x86_64-openeulersdk-linux/usr
 fi
@@ -19,12 +19,12 @@ sh ./build_fetch.sh
 sh ./build_static.sh hi3095
 sh ./build_openamp.sh $TOOLCHAIN_PATH
 
-if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" ]] && [ ! -d "./../component/libcxx" ]
+if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]] && [ ! -d "./../component/libcxx" ]
 then
     sh ./libcxx_build.sh
 fi
 
-if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" ]]
+if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]]
 then
     cmake -S .. -B $TMP_DIR -DAPP:STRING=$APP -DTOOLCHAIN_PATH:STRING=$TOOLCHAIN_PATH -DCXX_TOOLCHAIN_PATH:STRING=$CXX_TOOLCHAIN_PATH -DCPU_TYPE:SRTING="hi3095" -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
 else
@@ -36,7 +36,7 @@ make $APP
 popd
 cp ./$TMP_DIR/$APP $APP.elf
 
-if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" ]]
+if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]]
 then
     python ./../../../bin_helper.py -f ./$APP.elf --nocopy
     $CXX_TOOLCHAIN_PATH/bin/aarch64-openeuler-linux-objcopy -O binary ./$APP.elf $APP.bin

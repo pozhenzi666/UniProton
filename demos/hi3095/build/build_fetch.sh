@@ -31,7 +31,7 @@ fi
 popd
 
 pushd ../component
-if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" ]] && [ ! -d "./boost_1_54_0" ]
+if [[ "${APP}" == "cxxTest" || "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]] && [ ! -d "./boost_1_54_0" ]
 then
 echo "################# get boost #################"
 rm -rf boost_1_54_0*
@@ -44,7 +44,7 @@ fi
 popd
 
 pushd ../component
-if [[ "${APP}" == "eigenTest" && ! -d "./eigen-3.4.0" ]]
+if [[ "${APP}" == "eigenTest" || "${APP}" == "UniProton_SMP_test" ]] && [ ! -d "./eigen-3.4.0" ]
 then
 echo "################# get eigen #################"
 rm -rf eigen-3.4.0*
@@ -55,7 +55,7 @@ fi
 popd
 
 pushd ../component
-if [[ "${APP}" == "UniPorton_test_libxml2_interface" && ! -d "./libxml2" ]]
+if [[ "${APP}" == "UniPorton_test_libxml2_interface" || "${APP}" == "UniProton_SMP_test" ]] && [ ! -d "./libxml2" ]
 then
 echo "################# get libxml2 #################"
 rm -rf ./libxml2

@@ -249,7 +249,7 @@ int rcv_data_from_nrtos(void *rcv_data, int *data_len)
 	        g_umt_send_data_addr = msg->phy_addr + OPENAMP_SHM_COPY_SIZE;
             init ++;
 	    }
-	    memcpy(rcv_data, (void *)msg->phy_addr, msg->data_len);
+	    __real_memcpy(rcv_data, (void *)msg->phy_addr, msg->data_len);
 	    *data_len = msg->data_len;
         rpmsg_release_rx_buffer(&umt_ept, umt_msg.data);
 	    return OS_OK;
@@ -276,7 +276,7 @@ int send_data_to_nrtos(void *send_data, int data_len)
     if (data_len > OPENAMP_SHM_COPY_SIZE)
 	    return OS_ERROR;
 
-    memcpy(g_umt_send_data_addr, send_data, data_len);
+    __real_memcpy(g_umt_send_data_addr, send_data, data_len);
     rpmsg_data_len = data_len;
     ret = rpmsg_send(&umt_ept, &rpmsg_data_len, sizeof(int));
     if (ret < 0) {
