@@ -16,4 +16,6 @@ if(${CONFIG_OS_OPTION_POWEROFF})
 add_library_ex(prt_amp_psci.c)
 endif()
 
-
+if(${CONFIG_OS_OPTION_POSIX_SIGNAL})
+add_library_ex(prt_task_period.c)
+endif()

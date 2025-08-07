@@ -448,3 +448,25 @@ OS_SEC_L4_TEXT locale_t *PRT_LocaleCurrent(void)
     return &tskCb->locale;
 }
 #endif
+
+#if defined(OS_OPTION_POSIX)
+OS_SEC_L4_TEXT U32 PRT_TaskCreate_Joinable(TskHandle *taskPid, struct TskInitParam *initParam)
+{
+    U32 ret;
+    struct TagTskCb *tskCb;
+    ret = OsTaskCreateOnly(taskPid, initParam, FALSE);
+    if (ret != OS_OK) {
+        return ret;
+    }
+
+    tskCb = GET_TCB_HANDLE(*taskPid);
+    if (tskCb->state == PTHREAD_CREATE_JOINABLE) {
+        ret = PRT_SemCreate(0, &tskCb->joinableSem);
+        if (ret != OS_OK) {
+            return ret;
+        }
+    }
+
+    return OS_OK;
+}
+#endif
