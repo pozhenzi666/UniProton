@@ -13,6 +13,7 @@
 注: 在x86_64版本中需要额外将gdbmgr拷到验证环境上。
 
 ## 3 gdbstub支持情况
+### 3.1 单核支持
 当前支持架构为aarch64/x86_64，已经支持的demo如下：
 * x86_64 (未适配资源表)
 * hi3093
@@ -33,6 +34,10 @@
 * step
 * next
 * info local/regs
+### 3.2 多核支持
+仅支持aarch64，编译配置参考单核，无需额外设置。
+仅支持3.1中除run以外的基础调试命令功能
+不支持调度锁 scheduler-locking 
 
 ## 4 适配指南
 aarch64/x86_64新增demo的适配主要包括以下两步:
@@ -56,8 +61,13 @@ linux侧配置的是物理地址，假设虚拟地址0xf02600000对应的物理�
 ```
 
 ## 5 其他注意事项
+### 线程映射关系
+UniProton侧管理的一个核映射为GDB侧一个线程，因此单步操作后任务可能会发生切换
+### 权限配置
 当前的gdbstub需要对代码段进行修改，对应的页表项上需要加上额外的写权限。修改方法如下：
-### aarch64 
+
+#### aarch64
+
 参考demos/raspi4/bsp/mmu.c，确定有MMU_ACCESS_RWX
 ```c
         .virt      = MMU_IMAGE_ADDR,
@@ -67,7 +77,7 @@ linux侧配置的是物理地址，假设虚拟地址0xf02600000对应的物理�
         .attrs     = MMU_ATTR_CACHE_SHARE | MMU_ACCESS_RWX,
 ```
 
-### x86_64
+#### x86_64
 使用的页表有linux侧提前初始化好，因此需要修改mcs_km的[代码](https://gitee.com/openeuler/mcs/blob/uniproton_dev/mcs_km/mmu_map.c)
 ```c
 		// text

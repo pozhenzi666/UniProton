@@ -67,5 +67,10 @@ static inline const char *GetWatchTypeStr(unsigned type)
     }
 }
 
+/* Exception state values */
+#define DCPU_WANT_MASTER 0x1 /* Waiting to become a master kgdb cpu */
+#define DCPU_NEXT_MASTER 0x2 /* Transition from one master cpu to another */
+#define DCPU_IS_SLAVE    0x4 /* Slave cpu enter exception */
+
 extern STUB_TEXT void OsGdbHandleException(void *stk);
 #endif /* _GDBSTUB_COMMON_H_ */

@@ -2,6 +2,7 @@
 #define _GDBSTUB_H_
 
 #include "prt_typedef.h"
+#include "prt_buildef.h"
 
 #define BREAK_INSTR_SIZE 1
 /* 17 64 bit regs and 5 32 bit regs */
@@ -121,6 +122,8 @@
 /* Total number of available HW breakpoint registers */
 #define HBP_NUM 4
 
+#define MAX_CORE_NUM   1
+
 enum RegNames {
     GDB_AX,         /* 0 */
     GDB_BX,         /* 1 */
@@ -191,4 +194,6 @@ struct HwBrkInfo {
     uint8_t      enabled;
     uint8_t      type;
 };
+
+extern U32 OsGdbGetCoreID(void);
 #endif /* _GDBSTUB_H_ */
