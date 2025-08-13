@@ -3,6 +3,7 @@
 
 #include "cache_asm.h"
 #include "prt_gic_external.h"
+#include "prt_sys_external.h"
 
 /* 系统内存空间1 */
 #define MMU_IMAGE_ADDR             0x61000000ULL
@@ -39,7 +40,11 @@
 #define GICD_IPRIORITYN_ADDR       (GIC_REG_BASE_ADDR + 0x0400U)
 #define GICD_IGRPMODRN_ADDR        (GIC_REG_BASE_ADDR + 0x0D00U)
 
+#if defined(OS_OPTION_SMP)
+#define GICR_BASE_SEL ((g_gicCoreMap[THIS_CORE()].value & 0x100000) ? MMU_GICR0_ADDR : MMU_GICR1_ADDR)
+#else
 #define GICR_BASE_SEL ((g_gicCoreMap.value & 0x100000) ? MMU_GICR0_ADDR : MMU_GICR1_ADDR)
+#endif
 #define GICR_BASE0                 (GICR_BASE_SEL + 0x100000U)
 #define GICR_BASE1                 (GICR_BASE_SEL + 0x110000U)
 

@@ -32,6 +32,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/build/open-amp/output/usr/local/include
     ${CMAKE_CURRENT_SOURCE_DIR}/build/libmetal/output/usr/local/include
     ${HOME_PATH}/src/arch/include
+    ${HOME_PATH}/src/core/kernel/include
     ${HOME_PATH}/src/utility/lib/include
     ${HOME_PATH}/src/drivers/pcie
     ${HOME_PATH}/src/shell/adapter/include
@@ -70,6 +71,12 @@ add_subdirectory(${HOME_PATH}/src/component/mica mica)
 list(APPEND OBJS $<TARGET_OBJECTS:mica>)
 
 if (${APP} MATCHES "kp920_lite")
+    list(APPEND OBJS $<TARGET_OBJECTS:rpmsg> $<TARGET_OBJECTS:bsp> $<TARGET_OBJECTS:config> $<TARGET_OBJECTS:uart>)
+    add_executable(${APP} ${OBJS})
+elseif (${APP} STREQUAL "UniProton_SMP_test")
+    if (${CONFIG_OS_OPTION_SMP})
+        target_compile_options(rpmsg PUBLIC -DSMP_TESTCASE)
+    endif()
     list(APPEND OBJS $<TARGET_OBJECTS:rpmsg> $<TARGET_OBJECTS:bsp> $<TARGET_OBJECTS:config> $<TARGET_OBJECTS:uart>)
     add_executable(${APP} ${OBJS})
 elseif (${APP} STREQUAL "task-switch" OR

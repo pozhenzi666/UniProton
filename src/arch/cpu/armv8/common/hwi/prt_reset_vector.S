@@ -103,6 +103,9 @@ OsCoreMapInit:
     OsAsmGetCoreId  x3 // 读取核号
     /* g_gicCoreMap[coreid] 赋值对应coreid的mpidr_el1 */
     STR x1, [x2, x3, lsl #3]
+    LDR x4, =g_gicCoreInit
+    MOV w1, #1
+    STR w1, [x4, x3, lsl #2]
 
 #else
 OsStackBssInit:
