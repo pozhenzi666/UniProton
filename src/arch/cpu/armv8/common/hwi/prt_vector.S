@@ -59,8 +59,6 @@ el1_dbg:
     mov x0, sp
     bl OsGdbHandleException
 
-    msr daifset, 0xf
-
     ldp x22, x23, [sp, #S_PC]        // load ELR, SPSR
     msr elr_el1, x22            // set up the return data
     msr spsr_el1, x23

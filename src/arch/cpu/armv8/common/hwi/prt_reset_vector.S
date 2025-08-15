@@ -147,11 +147,11 @@ OsPrimaryMain: /* OsPrimaryMain函数主核调用 */
 #if defined(OS_OPTION_GUARD_STACK)
     InitChkGuardRnd x9, x10, w11 /* RND 写入 StackChkGuard */
 #endif
-#ifdef OS_GDB_STUB
-    bl OsGdbStubInit
-#endif
 
 OsEnterMain:
+#ifdef OS_GDB_STUB
+    BL      OsGdbStubInit
+#endif
     BL      main
 
     MOV     x2, DAIF_MASK

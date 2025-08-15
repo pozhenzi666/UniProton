@@ -18,6 +18,7 @@
 #define _GDBSTUB_H_
 
 #include "prt_typedef.h"
+#include "prt_buildef.h"
 
 #define _GP_REGS        33
 #define _FP_REGS        32
@@ -242,6 +243,11 @@ struct GdbCtx
     } regs;
     uint64_t far;
     uint8_t ec;
+    bool compiledBrk;
+    bool stopByCtrlc;
+    bool needStepFlg;
+    bool slaveFlg;
+    int  lastCtrl;
 };
 
 typedef struct HwBreakpoint {
@@ -268,4 +274,29 @@ struct HwBreakpointCtrl {
     enabled             : 1;
 };
 
+#ifdef OS_OPTION_SMP
+#define MAX_CORE_NUM    OS_MAX_CORE_NUM
+#else
+#define MAX_CORE_NUM   1
+#endif
+
+#define dmb(opt)    __asm__ volatile("dmb " #opt : : : "memory")
+#define smp_mb()  dmb(ish)
+#define smp_rmb() dmb(ishld)
+#define smp_wmb() dmb(ishst)
+
+static inline void cpu_relax()
+{
+    __asm__ volatile("yield" ::: "memory");
+}
+
+static inline void nop_delay(U32 loop) {
+    while (loop--) {
+        __asm__ volatile("nop");
+    }
+}
+
+extern void os_asm_invalidate_icache_all(void);
+
+extern U32 OsGdbGetCoreID(void);
 #endif /* _GDBSTUB_H_ */

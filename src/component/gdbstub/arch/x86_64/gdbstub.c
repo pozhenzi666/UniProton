@@ -56,19 +56,23 @@ static STUB_DATA struct DbgRegDef g_dbgRegDef[DBG_MAX_REG_NUM] =
 #define REGS (g_debugContext.regs.regs)
 #define RBUF (g_debugContext.regs.rbuf)
 
-STUB_TEXT void OsGdbArchContinue(void)
+STUB_TEXT int OsGdbArchContinue(U32 cid)
 {
+    (void)(cid);
     /* Clear the TRAP FLAG bit */
     REGS.flags &= ~BIT(8);
+    return 0;
 }
 
-STUB_TEXT void OsGdbArchStep(void)
+STUB_TEXT int OsGdbArchStep(U32 cid)
 {
+    (void)(cid);
     /* Set the TRAP FLAG bit */
     REGS.flags |= BIT(8);
+    return 0;
 }
 
-STUB_TEXT void OsGdbArchPrepare(void *stk)
+STUB_TEXT int OsGdbArchPrepare(void *stk)
 {
     struct PrtRegs *orig = (struct PrtRegs *)stk;
     REGS.ax = orig->ax;
@@ -95,6 +99,7 @@ STUB_TEXT void OsGdbArchPrepare(void *stk)
     REGS.flags = orig->flags;
     REGS.sp = orig->sp;
     REGS.ss = orig->ss;
+    return DCPU_WANT_MASTER;
 }
 
 STUB_TEXT void OsGdbArchFinish(void *stk)
@@ -160,8 +165,9 @@ INLINE int GdbWriteOneReg(U32 regno, U8 *buf)
                     g_dbgRegDef[regno].size);
 }
 
-STUB_TEXT int OsGdbArchReadReg(U32 regno, U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchReadReg(U32 cid, U32 regno, U8 *buf, int buflen)
 {
+    (void)(cid);
     if ((regno >= DBG_MAX_REG_NUM) || 
         (buflen < 2 * g_dbgRegDef[regno].size + 1)) {
         return 0;
@@ -169,8 +175,9 @@ STUB_TEXT int OsGdbArchReadReg(U32 regno, U8 *buf, int buflen)
     return GdbReadOneReg(regno, buf);
 }
 
-STUB_TEXT int OsGdbArchReadAllRegs(U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchReadAllRegs(U32 cid, U8 *buf, int buflen)
 {
+    (void)(cid);
     int ret = 0;
 
     if (buflen < 2 * NUMREGBYTES) {
@@ -182,8 +189,9 @@ STUB_TEXT int OsGdbArchReadAllRegs(U8 *buf, int buflen)
     return ret;
 }
 
-STUB_TEXT int OsGdbArchWriteReg(U32 regno, U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchWriteReg(U32 cid, U32 regno, U8 *buf, int buflen)
 {
+    (void)(cid);
     if (regno == GDB_SP || regno == GDB_ORIG_AX) {
         return 0;
     }
@@ -194,8 +202,9 @@ STUB_TEXT int OsGdbArchWriteReg(U32 regno, U8 *buf, int buflen)
     return GdbWriteOneReg(regno, buf);
 }
 
-STUB_TEXT int OsGdbArchWriteAllRegs(U8 *hex, int hexlen)
+STUB_TEXT int OsGdbArchWriteAllRegs(U32 cid, U8 *hex, int hexlen)
 {
+    (void)(cid);
     int ret = 0;
 
     if (hexlen < 2 * NUMREGBYTES) {
@@ -485,4 +494,8 @@ STUB_TEXT int OsGdbArchNotifyDie(int action, void *data)
 STUB_TEXT int OsGdbGetStopReason()
 {
     return g_stopReason;
+}
+
+STUB_TEXT U32 OsGdbGetCoreID(void) {
+    return 0;
 }

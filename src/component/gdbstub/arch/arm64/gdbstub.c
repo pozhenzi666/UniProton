@@ -15,11 +15,14 @@
  */
 
 #include "prt_typedef.h"
+#include "prt_buildef.h"
 #include "prt_notifier.h"
 #include "gdbstub.h"
 #include "arch_interface.h"
 #include "rsp_utils.h"
-
+#ifdef OS_OPTION_SMP
+#include "hw/armv8/os_cpu_armv8.h"
+#endif
 STUB_DATA static struct DbgRegDef g_dbgRegDef[DBG_MAX_REG_NUM] = {
     { "x0", 8, offsetof(struct PrtRegs, regs[0]) },
     { "x1", 8, offsetof(struct PrtRegs, regs[1]) },
@@ -97,13 +100,14 @@ STUB_DATA static struct DbgRegDef g_dbgRegDef[DBG_MAX_REG_NUM] = {
     { "fpcr", 4, -1 },
 };
 
-STUB_DATA static struct GdbCtx g_debugContext;
+STUB_DATA static struct GdbCtx g_dbgCtx[MAX_CORE_NUM];
+#define REGS(cid)       (g_dbgCtx[cid].regs.regs)
+#define RBUF(cid)       (g_dbgCtx[cid].regs.rbuf)
 
-STUB_DATA static bool g_compiled_brk = false;
+#define CTX(cid)    (g_dbgCtx[cid])
 
-STUB_DATA static bool g_stopByCtrlc;
-
-STUB_DATA static bool g_needStepFlg;
+#define LAST_CTRL_CONT   1
+#define LAST_CTRL_STEP   2
 
 STUB_DATA static uint8_t g_alignedLenArray[] = {1,2,4,4,8,8,8,8};
 
@@ -121,9 +125,6 @@ STUB_DATA static uint8_t g_basArray[] = {
     ARM_BREAKPOINT_LEN_7, ARM_BREAKPOINT_LEN_8,
 };
 
-#define REGS (g_debugContext.regs.regs)
-#define RBUF (g_debugContext.regs.rbuf)
-
 /* mask/save/unmask/restore all exceptions, including interrupts. */
 static inline void local_daif_mask(void)
 {
@@ -131,15 +132,6 @@ static inline void local_daif_mask(void)
         "msr    daifset, #0xf"
         :
         :
-        : "memory");
-}
-
-static inline void local_daif_clr_flags(uint32_t flags)
-{
-    __asm__  volatile(
-        "msr    daifset, %0"
-        :
-        : "i"(flags)
         : "memory");
 }
 
@@ -182,74 +174,100 @@ STUB_TEXT static uint32_t mdscr_read(void)
     return read_sysreg(mdscr_el1);
 }
 
-STUB_TEXT void OsGdbArchContinue(void)
+STUB_TEXT void OsGdbArchForceStep(U32 cid, bool slaveFlg)
 {
-    if (g_compiled_brk) {
-        REGS.pc += BREAK_INSTR_SIZE;
-        g_compiled_brk = false;
-    }
-
-    REGS.pstate &= ~DBG_SPSR_SS;
-    REGS.pstate &= ~DBG_SPSR_D;
-
-    mdscr_write(mdscr_read() & ~DBG_MDSCR_SS);
+    CTX(cid).needStepFlg = true;
+    CTX(cid).slaveFlg = slaveFlg;
 }
 
-STUB_TEXT void OsGdbArchStep(void)
+STUB_TEXT int OsGdbArchContinue(U32 cid)
 {
-    if (g_compiled_brk) {
-        REGS.pc += BREAK_INSTR_SIZE;
-        g_compiled_brk = false;
+    if (cid >= MAX_CORE_NUM) {
+        return -1;
     }
+    if (CTX(cid).compiledBrk) {
+        REGS(cid).pc += BREAK_INSTR_SIZE;
+        CTX(cid).compiledBrk = false;
+    }
+    CTX(cid).slaveFlg = false;
+    REGS(cid).pstate &= ~DBG_SPSR_SS;
+    REGS(cid).pstate &= ~DBG_SPSR_D;
+    CTX(cid).lastCtrl = LAST_CTRL_CONT;
+    return 0;
+}
 
-    REGS.pstate |= DBG_SPSR_SS;
-    REGS.pstate &= ~DBG_SPSR_D;
-    mdscr_write(mdscr_read() | DBG_MDSCR_SS | DBG_MDSCR_KDE);
+STUB_TEXT int OsGdbArchStep(U32 cid)
+{
+    if (cid >= MAX_CORE_NUM) {
+        return -1;
+    }
+    if (CTX(cid).compiledBrk) {
+        REGS(cid).pc += BREAK_INSTR_SIZE;
+        CTX(cid).compiledBrk = false;
+    }
+    CTX(cid).slaveFlg = false;
+    REGS(cid).pstate |= DBG_SPSR_SS;
+    REGS(cid).pstate &= ~DBG_SPSR_D;
+    CTX(cid).lastCtrl = LAST_CTRL_STEP;
+    return 0;
 }
 
 STUB_TEXT void OsGdbMarkStep(uint64_t *sp)
 {
-    if (LIKELY(!g_needStepFlg)) {
+    U32 cid = OsGdbGetCoreID();
+    if (LIKELY(!CTX(cid).needStepFlg)) {
         return;
     }
-    g_needStepFlg = false;
+    CTX(cid).needStepFlg = false;
+
     sp[1] |= DBG_SPSR_SS;
     sp[1] &= ~DBG_SPSR_D;
     mdscr_write(mdscr_read() | DBG_MDSCR_SS | DBG_MDSCR_KDE);
 }
 
-STUB_TEXT void OsGdbArchPrepare(void *stk)
+STUB_TEXT int OsGdbArchPrepare(void *stk)
 {
     struct PrtRegs *orig = (struct PrtRegs *)stk;
-
+    U32 cid = OsGdbGetCoreID();
+    int state = DCPU_WANT_MASTER;
     for (int i = 0; i < sizeof(orig->regs) / sizeof(orig->regs[0]); i++) {
-        REGS.regs[i] = orig->regs[i];
+        REGS(cid).regs[i] = orig->regs[i];
     }
-    
-    REGS.sp = orig->sp;
-    REGS.pc = orig->pc;
-    REGS.pstate = orig->pstate;
-    g_debugContext.far = 0;
+    REGS(cid).sp = orig->sp;
+    REGS(cid).pc = orig->pc;
+    REGS(cid).pstate = orig->pstate;
+    CTX(cid).far = 0;
 
     uint32_t esr = read_sysreg(esr_el1);
-    g_debugContext.ec = ESR_ELx_EC(esr);
+    CTX(cid).ec = ESR_ELx_EC(esr);
     if ((esr & ESR_ELx_BRK64_ISS_COMMENT_MASK) == GDB_COMPILED_DBG_BRK_IMM) {
-        g_compiled_brk = true;
+        CTX(cid).compiledBrk = true;
+    } else if (CTX(cid).slaveFlg) {
+        CTX(cid).slaveFlg = false;
+        state = DCPU_IS_SLAVE;
     } else if (ESR_ELx_EC(esr) == ESR_ELx_EC_WATCHPT_CUR) {
-        g_debugContext.far = read_sysreg(far_el1);
+        CTX(cid).far = read_sysreg(far_el1);
     }
+    return state;
 }
 
 STUB_TEXT void OsGdbArchFinish(void *stk)
 {
     struct PrtRegs *orig = (struct PrtRegs *)stk;
-
+    U32 cid = OsGdbGetCoreID();
+    int ctrl = CTX(cid).lastCtrl;
     for (int i = 0; i < sizeof(orig->regs) / sizeof(orig->regs[0]); i++) {
-        orig->regs[i] = REGS.regs[i];
+        orig->regs[i] = REGS(cid).regs[i];
     }
-    orig->sp = REGS.sp;
-    orig->pc = REGS.pc;
-    orig->pstate = REGS.pstate;
+    orig->sp = REGS(cid).sp;
+    orig->pc = REGS(cid).pc;
+    orig->pstate = REGS(cid).pstate;
+
+    if (ctrl == LAST_CTRL_CONT) {
+        mdscr_write(mdscr_read() & ~DBG_MDSCR_SS);
+    } else if (ctrl == LAST_CTRL_STEP) {
+        mdscr_write(mdscr_read() | DBG_MDSCR_SS | DBG_MDSCR_KDE);
+    }
 }
 
 static inline int GdbReadRegUnavailable(U32 regno, U8 *buf)
@@ -263,7 +281,7 @@ static inline int GdbReadRegUnavailable(U32 regno, U8 *buf)
     return size;
 }
 
-STUB_TEXT static int GdbReadOneReg(U32 regno, U8 *buf)
+STUB_TEXT static int GdbReadOneReg(U32 cid, U32 regno, U8 *buf)
 {
     int len;
 
@@ -271,13 +289,13 @@ STUB_TEXT static int GdbReadOneReg(U32 regno, U8 *buf)
         return GdbReadRegUnavailable(regno, buf);
     }
 
-    len = OsGdbBin2Hex(&RBUF[g_dbgRegDef[regno].offset], g_dbgRegDef[regno].size,
+    len = OsGdbBin2Hex(&(RBUF(cid)[g_dbgRegDef[regno].offset]), g_dbgRegDef[regno].size,
                        buf, g_dbgRegDef[regno].size * BYTE_TO_STR_LEN + 1);
 
-    return len; 
+    return len;
 }
 
-STUB_TEXT static int GdbWriteOneReg(U32 regno, U8 *buf)
+STUB_TEXT static int GdbWriteOneReg(U32 cid, U32 regno, U8 *buf)
 {
     int len;
 
@@ -286,11 +304,11 @@ STUB_TEXT static int GdbWriteOneReg(U32 regno, U8 *buf)
     }
 
     len = OsGdbHex2Bin(buf, g_dbgRegDef[regno].size * BYTE_TO_STR_LEN,
-                       &RBUF[g_dbgRegDef[regno].offset], g_dbgRegDef[regno].size);
+                       &(RBUF(cid)[g_dbgRegDef[regno].offset]), g_dbgRegDef[regno].size);
     return BYTE_TO_STR_LEN * len;
 }
 
-STUB_TEXT int OsGdbArchReadAllRegs(U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchReadAllRegs(U32 cid, U8 *buf, int buflen)
 {
     int ret = 0;
 
@@ -299,43 +317,44 @@ STUB_TEXT int OsGdbArchReadAllRegs(U8 *buf, int buflen)
     }
 
     for (int i = 0; i < DBG_MAX_REG_NUM; i++) {
-        ret += GdbReadOneReg(i, &buf[ret]);
+        ret += GdbReadOneReg(cid, i, &buf[ret]);
     }
 
     return ret;
 }
 
-STUB_TEXT int OsGdbArchWriteAllRegs(U8 *hex, int hexlen)
+STUB_TEXT int OsGdbArchWriteAllRegs(U32 cid, U8 *hex, int hexlen)
 {
     int ret = 0;
 
-    if (hexlen < BYTE_TO_STR_LEN * NUMREGBYTES) {
+    if (cid >= MAX_CORE_NUM || hexlen < BYTE_TO_STR_LEN * NUMREGBYTES) {
         return 0;
     }
 
     for (int i = 0; i < DBG_MAX_REG_NUM; i++) {
-        ret += GdbWriteOneReg(i, &hex[ret]); 
+        ret += GdbWriteOneReg(cid, i, &hex[ret]);
     }
 
     return ret;
 }
 
-STUB_TEXT int OsGdbArchReadReg(U32 regno, U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchReadReg(U32 cid, U32 regno, U8 *buf, int buflen)
 {
-    if (regno >= DBG_MAX_REG_NUM || buflen < 2 * g_dbgRegDef[regno].size + 1) {
+    if (cid >= MAX_CORE_NUM || regno >= DBG_MAX_REG_NUM ||
+        buflen < 2 * g_dbgRegDef[regno].size + 1) {
         return 0;
     }
 
-    return GdbReadOneReg(regno, buf);
+    return GdbReadOneReg(cid, regno, buf);
 }
 
-STUB_TEXT int OsGdbArchWriteReg(U32 regno, U8 *buf, int buflen)
+STUB_TEXT int OsGdbArchWriteReg(U32 cid, U32 regno, U8 *buf, int buflen)
 {
     if (regno >= DBG_MAX_REG_NUM || buflen < 2 * g_dbgRegDef[regno].size) {
         return -1;
     }
 
-    return GdbWriteOneReg(regno, buf);
+    return GdbWriteOneReg(cid, regno, buf);
 }
 
 STUB_TEXT int OsGdbArchSetSwBkpt(struct GdbBkpt *bkpt)
@@ -361,9 +380,8 @@ static inline void InsertCompiledBrk()
         "dsb st\n"
         "brk %0\n"
         "dsb st\n"
-        : : "I" (GDB_COMPILED_DBG_BRK_IMM));
+        : : "i" (GDB_COMPILED_DBG_BRK_IMM));
 }
-
 
 STUB_TEXT static void OsCacheFlush(unsigned long addr_start, unsigned long addr_end)
 {
@@ -440,14 +458,8 @@ static STUB_TEXT void WriteWbReg(int reg, int n, uint64_t val)
     idx;                               \
 });
 
-STUB_TEXT void OsGdbArchInit(void)
+STUB_TEXT void OsGdbSmpArchInit(void)
 {
-    /* Determine number of BRP/WRP registers available. */
-    uint64_t aa64dfr0 = read_sysreg(id_aa64dfr0_el1);
-
-    g_maxBrpCnt = AA64DFR0_BRPS_VAL(aa64dfr0);
-    g_maxWrpCnt = AA64DFR0_WRPS_VAL(aa64dfr0);
-
     for (int i = 0; i < g_maxBrpCnt; i++) {
         WriteWbReg(AARCH64_DBG_REG_BVR, i, 0);
         WriteWbReg(AARCH64_DBG_REG_BCR, i, 0);
@@ -458,7 +470,17 @@ STUB_TEXT void OsGdbArchInit(void)
     }
     write_sysreg(0, osdlr_el1);
     write_sysreg(0, oslar_el1);
+}
 
+STUB_TEXT void OsGdbArchInit(void)
+{
+    /* Determine number of BRP/WRP registers available. */
+    uint64_t aa64dfr0 = read_sysreg(id_aa64dfr0_el1);
+
+    g_maxBrpCnt = AA64DFR0_BRPS_VAL(aa64dfr0);
+    g_maxWrpCnt = AA64DFR0_WRPS_VAL(aa64dfr0);
+
+    OsGdbSmpArchInit();
     InsertCompiledBrk();
 }
 
@@ -640,13 +662,15 @@ STUB_TEXT int OsGdbArchHitHwBkpt(uintptr_t *addr, unsigned *type)
 {
     uint64_t far;
     struct HwBreakpointCtrl ctrl = {0};
-    if (addr == NULL || type == NULL || g_debugContext.far == 0) {
+    U32 cid = OsGdbGetCoreID();
+
+    if (addr == NULL || type == NULL || cid >= MAX_CORE_NUM || CTX(cid).far == 0) {
         return 0;
     }
-    if (g_debugContext.ec != ESR_ELx_EC_WATCHPT_CUR) {
+    if (CTX(cid).ec != ESR_ELx_EC_WATCHPT_CUR) {
         return 0;
     }
-    far = g_debugContext.far;
+    far = CTX(cid).far;
     for (int i = 0; i < g_maxWrpCnt; i++) {
         if (g_wrpArray[i].state == 0) {
             continue;
@@ -680,9 +704,10 @@ STUB_TEXT void OsGdbArchDisableHwBkpts()
 
 STUB_TEXT int OsGdbArchNotifyDie(int action, void *data)
 {
-    g_stopByCtrlc = true;
+    U32 cid = OsGdbGetCoreID();
+    CTX(cid).stopByCtrlc = true;
 #ifdef LAZY_STOP
-    g_needStepFlg = true;
+    CTX(cid).needStepFlg = true;
 #else
     InsertCompiledBrk();
 #endif
@@ -691,9 +716,21 @@ STUB_TEXT int OsGdbArchNotifyDie(int action, void *data)
 
 STUB_TEXT int OsGdbGetStopReason()
 {
-    if (g_stopByCtrlc) {
-        g_stopByCtrlc = false;
+    U32 cid = OsGdbGetCoreID();
+    if (CTX(cid).stopByCtrlc) {
+        CTX(cid).stopByCtrlc = false;
         return 2;
     }
     return 5;
 }
+
+#ifdef OS_OPTION_SMP
+STUB_TEXT U32 OsGdbGetCoreID(void)
+{
+    return OsGetCoreID();
+}
+#else
+STUB_TEXT U32 OsGdbGetCoreID(void) {
+    return 0;
+}
+#endif

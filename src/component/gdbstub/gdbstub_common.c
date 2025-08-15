@@ -22,6 +22,9 @@
 #include "rsp_utils.h"
 #include "arch_interface.h"
 #include "gdbstub_common.h"
+#include "prt_buildef.h"
+#include "prt_cpu_external.h"
+#include "prt_atomic.h"
 
 #define GDB_EXCEPTION_BREAKPOINT            5
 #define GDB_PACKET_SIZE                     2048
@@ -54,9 +57,79 @@ enum LoopState {
     EXIT,
 } state;
 
+#define MAX_HANDLER_NUM 128
+
 static STUB_DATA char g_notFirstStart;
 static STUB_DATA char g_gdbActive;
-static STUB_DATA char g_exitDbg;
+static STUB_DATA volatile char g_exitDbg;
+static STUB_DATA volatile int g_coreId;
+static STUB_DATA volatile int g_prevCoreId;
+static STUB_DATA int g_thIdx;
+
+static STUB_DATA int g_firstCoreId = -1;
+static STUB_DATA volatile U32 g_onlineBitmap = 0;
+
+#ifdef OS_OPTION_SMP
+static STUB_DATA struct Atomic32 g_onlineCores = {0};
+static STUB_DATA volatile uintptr_t g_initLock = OS_SPINLOCK_UNLOCK;
+
+static STUB_DATA volatile int g_excState[OS_MAX_CORE_NUM];
+static STUB_DATA volatile uintptr_t g_dbgMasterLock = OS_SPINLOCK_UNLOCK;
+static STUB_DATA volatile uintptr_t g_dbgSlaveLock = OS_SPINLOCK_UNLOCK;
+static STUB_DATA volatile uintptr_t g_dbgLock = OS_SPINLOCK_UNLOCK;
+
+static STUB_DATA struct Atomic32 g_dbgMasters = {0};
+static STUB_DATA struct Atomic32 g_dbgSlaves = {0};
+
+/* to keep track of the CPU which is doing the single stepping*/
+static STUB_DATA struct Atomic32 g_ssCoreId = {-1};
+static STUB_DATA volatile int g_ssFlg = 0;
+
+static STUB_TEXT void atomic_inc(struct Atomic32 *v)
+{
+    OsAtomic32Add(1, v);
+}
+
+static STUB_TEXT void atomic_dec(struct Atomic32 *v)
+{
+    OsAtomic32Add(-1, v);
+}
+
+static STUB_TEXT void atomic_set(struct Atomic32 *v, int i)
+{
+    v->counter = i;
+}
+
+static STUB_TEXT int atomic_read(struct Atomic32 *v)
+{
+    return v->counter;
+}
+
+static STUB_TEXT bool raw_spin_trylock(volatile uintptr_t *lock)
+{
+    return OsSplTryLock(lock);
+}
+
+static STUB_TEXT void raw_spin_lock(volatile uintptr_t *lock)
+{
+    OsSplLock(lock);
+}
+
+static STUB_TEXT void raw_spin_unlock(volatile uintptr_t *lock)
+{
+    OsSplUnlock(lock);
+}
+
+static STUB_TEXT bool raw_spin_is_locked(volatile uintptr_t *lock)
+{
+    return *lock == OS_SPINLOCK_LOCK;
+}
+#endif
+
+static STUB_TEXT bool OsCpuOnlineCheckMask(U8 cpu_id)
+{
+    return (g_onlineBitmap & (1U << cpu_id)) != 0;
+}
 
 /*
  * Holds information about breakpoints.
@@ -150,11 +223,11 @@ STUB_TEXT int OsGdbConfigInitMemRegions(void)
     g_regions[2].attributes = GDB_MEM_REGION_NO_BKPT;
 }
 
-static STUB_TEXT int GdbAddrCheck(uintptr_t addr, int attr)
+static STUB_TEXT int GdbAddrCheck(uintptr_t addr, int len, int attr)
 {
     for (int i = 0; i < MAX_REGIONS; i++) {
         if (addr >= g_regions[i].start &&
-            addr < g_regions[i].end &&
+            addr + len < g_regions[i].end &&
             (g_regions[i].attributes & attr) == attr) {
             return 0;
         }
@@ -162,19 +235,19 @@ static STUB_TEXT int GdbAddrCheck(uintptr_t addr, int attr)
     return -EINVAL;
 }
 
-static STUB_TEXT int GdbInvalidReadAddr(uintptr_t addr)
+static STUB_TEXT int GdbInvalidReadAddr(uintptr_t addr, int len)
 {
-    return GdbAddrCheck(addr, GDB_MEM_REGION_READ);
+    return GdbAddrCheck(addr, len, GDB_MEM_REGION_READ);
 }
 
-static STUB_TEXT int GdbInvalidWriteAddr(uintptr_t addr)
+static STUB_TEXT int GdbInvalidWriteAddr(uintptr_t addr, int len)
 {
-    return GdbAddrCheck(addr, GDB_MEM_REGION_WRITE);
+    return GdbAddrCheck(addr, len, GDB_MEM_REGION_WRITE);
 }
 
 static STUB_TEXT int GdbInvalidBkptAddr(uintptr_t addr)
 {
-    return !GdbAddrCheck(addr, GDB_MEM_REGION_NO_BKPT);
+    return !GdbAddrCheck(addr, BREAK_INSTR_SIZE, GDB_MEM_REGION_NO_BKPT);
 }
 
 /*
@@ -361,8 +434,13 @@ static STUB_TEXT int GdbRawMemWrite(const U8 *buf, uintptr_t addr, int len)
     return count;
 }
 
-static STUB_TEXT int GdbCmdMemRead(U8 *ptr)
+/*
+ * Read from the memory
+ * Format: m addr,length
+ */
+static STUB_TEXT int GdbCmdMemRead(U8 *ptr, int bufLen)
 {
+    (void)bufLen;
     int len;
     uintptr_t addr;
     int ret;
@@ -380,7 +458,7 @@ static STUB_TEXT int GdbCmdMemRead(U8 *ptr)
      * a fault. Just send a packet informing that
      * this address is invalid
      */
-    if (GdbInvalidReadAddr(addr)) {
+    if (GdbInvalidReadAddr(addr, len)) {
         OsGdbSendPacket(GDB_ERROR_MEMORY, 3);
         return 0;
     }
@@ -390,8 +468,13 @@ static STUB_TEXT int GdbCmdMemRead(U8 *ptr)
     return ret;
 }
 
-static STUB_TEXT int GdbCmdMemWrite(U8 *ptr)
+/*
+ * Write to memory
+ * Format: M addr,length:val
+ */
+static STUB_TEXT int GdbCmdMemWrite(U8 *ptr, int bufLen)
 {
+    (void)bufLen;
     int len;
     uintptr_t addr;
 
@@ -400,7 +483,7 @@ static STUB_TEXT int GdbCmdMemWrite(U8 *ptr)
     CHECK_HEX(len);
     CHECK_CHAR(':');
 
-    if (GdbInvalidWriteAddr(addr)) {
+    if (GdbInvalidWriteAddr(addr, len)) {
         OsGdbSendPacket(GDB_ERROR_MEMORY, 3);
         return 0;
     }
@@ -412,8 +495,12 @@ static STUB_TEXT int GdbCmdMemWrite(U8 *ptr)
     return 0;
 }
 
-static STUB_TEXT int GdbCmdBreak(U8 *ptr)
+/*
+ * Breakpoints
+ */
+static STUB_TEXT int GdbCmdBreak(U8 *ptr, int len)
 {
+    (void)len;
     U32 kind;
     uintptr_t addr;
     U8 type;
@@ -442,18 +529,27 @@ static STUB_TEXT int GdbCmdBreak(U8 *ptr)
     return 0;
 }
 
-static STUB_TEXT int GdbCmdReadReg(U8 *ptr)
+/*
+ * Read register
+ * Format: p N
+ */
+static STUB_TEXT int GdbCmdReadReg(U8 *ptr, int len)
 {
+    (void)len;
     U32 regno;
     int ret;
 
     CHECK_HEX(regno);
-    ret = OsGdbArchReadReg(regno, g_serialBuf, sizeof(g_serialBuf));
+    ret = OsGdbArchReadReg(g_coreId, regno, g_serialBuf, sizeof(g_serialBuf));
     CHECK_ERROR(ret == 0)
     OsGdbSendPacket(g_serialBuf, ret);
     return 0;
 }
 
+/*
+ * Write the value of the CPU register
+ * Format: P N...=XXX...
+ */
 static STUB_TEXT int GdbCmdWriteReg(U8 *ptr, int len)
 {
     U32 regno;
@@ -462,35 +558,287 @@ static STUB_TEXT int GdbCmdWriteReg(U8 *ptr, int len)
 
     CHECK_HEXS(regno, cnt);
     CHECK_CHAR('='); 
-    ret = OsGdbArchWriteReg(regno, ptr, len - cnt - 1);
+    ret = OsGdbArchWriteReg(g_coreId, regno, ptr, len - cnt - 1);
     CHECK_ERROR(ret < 0)
     OsGdbSendPacket("OK", 2);
     return 0;
 }
 
-static STUB_TEXT void GdbSendStopReply()
+static STUB_TEXT int GdbSendStopReply(U8 *ptr, int len)
 {
+    (void)ptr;
+    (void)len;
+
     // GDB_EXCEPTION_BREAKPOINT: DEBUG & BREAKPOINT:
     uintptr_t addr;
     unsigned type;
-
+    U32 cid = OsGdbGetCoreID();
+    int ret = 0;
+    int stopReason = OsGdbGetStopReason();
     if (OsGdbArchHitHwBkpt(&addr, &type)) {
         const char *typeStr = GetWatchTypeStr(type);
-        int len = 0;
-
         if (typeStr == NULL) {
-            OsGdbSendException(g_serialBuf, sizeof(g_serialBuf), OsGdbGetStopReason());
-            return;
+            ret = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "T%02xthread:%02x;", stopReason, cid);
+        } else {
+            ret = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "T%02x%s:%x;thread:%02x;",
+            stopReason, typeStr, addr, cid);
         }
-
-        len = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "T05%s:%x;", typeStr, addr);
-        if (len < 0) {
-            OsGdbSendException(g_serialBuf, sizeof(g_serialBuf), OsGdbGetStopReason());
-            return;
-        }
-        OsGdbSendPacket(g_serialBuf, len);
     } else {
-        OsGdbSendException(g_serialBuf, sizeof(g_serialBuf), OsGdbGetStopReason());
+        ret = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "T%02xthread:%02x;", stopReason, cid);
+    }
+    if (ret < 0) {
+        OsGdbSendException(g_serialBuf, sizeof(g_serialBuf), stopReason);
+        return 0;
+    }
+    OsGdbSendPacket(g_serialBuf, ret);
+    return 0;
+}
+
+/* Handle the 'q' query packets */
+static STUB_TEXT int GdbCmdQuery(U8 *ptr, int len)
+{
+    (void)len;
+    int ret;
+    int maxCoreNum;
+    switch (*ptr) {
+    case 's':
+    case 'f':
+        if (memcmp(&ptr[1], "ThreadInfo", 10)) {
+            break;
+        }
+        if (*ptr == 'f') {
+            g_thIdx = 0;
+        }
+#ifdef OS_OPTION_SMP
+        maxCoreNum = atomic_read(&g_onlineCores);
+#else
+        maxCoreNum = 1;
+#endif
+        if (g_thIdx < maxCoreNum) {
+            ret = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "m%x", g_firstCoreId + g_thIdx);
+            g_thIdx++;
+            OsGdbSendPacket(g_serialBuf, ret);
+        } else {
+            OsGdbSendPacket("l", 1);
+        }
+        break;
+    case 'C':
+        /* return Current thread id */
+        ret = sprintf_s(g_serialBuf, sizeof(g_serialBuf) - 4, "QC%x;", OsGdbGetCoreID());
+        OsGdbSendPacket(g_serialBuf, ret);
+        break;
+
+    default:
+        OsGdbSendPacket(NULL, 0);
+        break;
+    }
+    return 0;
+}
+
+/* Handle the 'H' task query packets */
+static STUB_TEXT int GdbCmdSetThread(U8 *ptr, int len)
+{
+    (void)len;
+    int coreId = 0;
+    U8 type = *ptr;
+    ptr++;
+    if (type != 'g' && type != 'c') {
+        return -1;
+    }
+    CHECK_HEX(coreId);
+
+    if (coreId == -1) {
+        g_coreId = g_firstCoreId;
+        return 0;
+    }
+    if (coreId < g_firstCoreId || coreId > MAX_CORE_NUM) {
+        return -1;
+    }
+
+    if (!OsCpuOnlineCheckMask(coreId)) {
+        return -1;
+    }
+    g_coreId = coreId;
+    return 0;
+}
+
+/* Handle the 'T' thread query packets */
+static STUB_TEXT int GdbCmdThreadAlive(U8 *ptr, int len)
+{
+    (void)len;
+    int coreId = 0;
+    CHECK_HEX(coreId);
+    if (coreId < g_firstCoreId || coreId > MAX_CORE_NUM) {
+        OsGdbSendPacket(GDB_ERROR_INVAL, 3);
+        return 0;
+    }
+
+    if (OsCpuOnlineCheckMask(coreId)) {
+        OsGdbSendPacket("OK", 2);
+        return 0;
+    }
+    OsGdbSendPacket(GDB_ERROR_INVAL, 3);
+    return 0;
+}
+
+/*
+ * Continue ignoring the optional address
+ * Format: c addr
+ */
+static STUB_TEXT int GdbCmdContinue(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    if (OsGdbArchContinue(g_coreId) != 0) {
+        OsGdbSendPacket(GDB_ERROR_INVAL, 3);
+        return 0;
+    }
+#ifdef OS_OPTION_SMP
+    g_ssFlg = 0;
+    atomic_set(&g_ssCoreId, -1);
+    if (g_prevCoreId != g_coreId) {
+        OsGdbArchContinue(g_prevCoreId);
+    }
+    smp_mb();
+#endif
+    /* We reset PC passively when receiving P/G packet. */
+    OsGdbSendPacket("OK", 2);
+    state = EXIT;
+    return 0;
+}
+
+/*
+ * Step one instruction ignoring the optional address
+ * s addr..addr
+ */
+static STUB_TEXT int GdbCmdStep(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    if (OsGdbArchStep(g_coreId) != 0) {
+        return 0;
+    }
+#ifdef OS_OPTION_SMP
+    g_ssFlg = 1;
+    atomic_set(&g_ssCoreId, g_coreId);
+    if (g_prevCoreId != g_coreId) {
+        OsGdbArchContinue(g_prevCoreId);
+        g_ssFlg = 0;
+    }
+    smp_mb();
+#endif
+    state = EXIT;
+
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdReadAllRegs(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    int ret = OsGdbArchReadAllRegs(g_coreId, g_serialBuf, sizeof(g_serialBuf));
+    CHECK_ERROR(ret == 0);
+    OsGdbSendPacket(g_serialBuf, ret);
+    return 0;
+}
+
+/*
+ * Write the value of the CPU registers
+ * Format: G XX...
+ */
+static STUB_TEXT int GdbCmdWriteAllRegs(U8 *ptr, int len)
+{
+    int ret = OsGdbArchWriteAllRegs(g_coreId, ptr, len);
+    CHECK_ERROR(ret == 0);
+    OsGdbSendPacket("OK", 2);
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdThreadSet(U8 *ptr, int len)
+{
+    if (*ptr == 's') {
+        OsGdbSendPacket(NULL, 0);
+        return 0;
+    }
+    if (GdbCmdSetThread(ptr, len) == 0) {
+        OsGdbSendPacket("OK", 2);
+    } else {
+        OsGdbSendPacket(GDB_ERROR_INVAL, 3);
+    }
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdExit(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    GdbResetBkpts();
+    OsGdbArchRemoveAllHwBkpts();
+    OsGdbArchContinue(g_coreId);
+    state = EXIT;
+    g_exitDbg = 1;
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdDfx(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    OsGdbSendPacket("OK", 2);
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdNotSupport(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    OsGdbSendPacket(NULL, 0);
+    return 0;
+}
+
+static STUB_TEXT int GdbCmdNoRsp(U8 *ptr, int len)
+{
+    (void)ptr;
+    (void)len;
+    return 0;
+}
+
+typedef int (*GdbCmdHandler) (U8 *buf, int len);
+typedef struct GdbCmdRegEntryT {
+    char code;
+    GdbCmdHandler handler;
+} GdbCmdRegEntry;
+
+static STUB_DATA GdbCmdRegEntry g_cmdRegTbl[] = {
+    {'m',GdbCmdMemRead},
+    {'M',GdbCmdMemWrite},
+    {'c',GdbCmdContinue},
+    {'s',GdbCmdStep},
+    {'g',GdbCmdReadAllRegs},
+    {'G',GdbCmdWriteAllRegs},
+    {'p',GdbCmdReadReg},
+    {'P',GdbCmdWriteReg},
+    {'z',GdbCmdBreak},
+    {'Z',GdbCmdBreak},
+    {'?',GdbSendStopReply},
+    {'H',GdbCmdThreadSet},
+    {'T',GdbCmdThreadAlive},
+    {'q',GdbCmdQuery},
+    {'R',GdbCmdNoRsp},
+    {'k',GdbCmdExit},
+    {'j',GdbCmdDfx},
+};
+
+static STUB_DATA GdbCmdHandler g_gdbCmdHandlers[MAX_HANDLER_NUM];
+
+static STUB_TEXT void GdbRegHandlers()
+{
+    int len = sizeof(g_cmdRegTbl) / sizeof(GdbCmdRegEntry);
+    for (int i = 0; i < MAX_HANDLER_NUM; i++) {
+        g_gdbCmdHandlers[i] = GdbCmdNotSupport;
+    }
+    for (int i = 0; i < len; i++) {
+        g_gdbCmdHandlers[g_cmdRegTbl[i].code] = g_cmdRegTbl[i].handler;
     }
 }
 
@@ -500,26 +848,23 @@ static STUB_TEXT void GdbSendStopReply()
 static STUB_TEXT int GdbSerialStub()
 {
     state = RECEIVING;
-    /* Only send exception if this is not the first
-     * GDB break.
-     */
+
+    /* Only send exception if this is not the first GDB break. */
     if (g_notFirstStart) {
-        GdbSendStopReply();
+        GdbSendStopReply(NULL, 0);
     } else {
         g_notFirstStart = 1;
     }
-
+    g_prevCoreId = g_coreId = OsGdbGetCoreID();
     while (state == RECEIVING) {
         U8 *ptr;
         int len;
         int ret;
 
         ret = OsGdbGetPacket(g_serialBuf, sizeof(g_serialBuf), &len);
+
+        /* Send error and wait for next packet.*/
         if ((ret == -GDB_RSP_ENO_CHKSUM) || (ret == -GDB_RSP_ENO_2BIG)) {
-            /*
-             * Send error and wait for next packet.
-             *
-             */
             OsGdbSendPacket(GDB_ERROR_GENERAL, 3);
             continue;
         }
@@ -529,122 +874,8 @@ static STUB_TEXT int GdbSerialStub()
         }
 
         ptr = g_serialBuf;
-        ret = 0;
-        switch (*ptr++) {
-
-        /**
-         * Read from the memory
-         * Format: m addr,length
-         */
-        case 'm':
-            ret = GdbCmdMemRead(ptr);
-            break;
-
-        /**
-         * Write to memory
-         * Format: M addr,length:val
-         */
-        case 'M':
-            ret = GdbCmdMemWrite(ptr);
-            break;
-
-        /*
-         * Continue ignoring the optional address
-         * Format: c addr
-         */
-        case 'c':
-            OsGdbArchContinue();
-            /* We reset PC passively when receiving P/G packet. */
-            OsGdbSendPacket("OK", 2);
-            state = EXIT;
-            break;
-
-        /*
-         * Step one instruction ignoring the optional address
-         * s addr..addr
-         */
-        case 's':
-            OsGdbArchStep();
-            state = EXIT;
-            break;
-
-        /*
-         * Read all registers
-         * Format: g
-         */
-        case 'g':
-            len = OsGdbArchReadAllRegs(g_serialBuf, sizeof(g_serialBuf));
-            CHECK_ERROR(len == 0);
-            OsGdbSendPacket(g_serialBuf, len);
-            break;
-
-        /**
-         * Write the value of the CPU registers
-         * Format: G XX...
-         */
-        case 'G':
-            len = OsGdbArchWriteAllRegs(ptr, len - 1);
-            CHECK_ERROR(len == 0);
-            OsGdbSendPacket("OK", 2);
-            break;
-
-        /*
-         * Read register
-         * Format: p N
-         */
-        case 'p':
-            ret = GdbCmdReadReg(ptr);
-            break;
-
-        /**
-         * Write the value of the CPU register
-         * Format: P N...=XXX...
-         */
-        case 'P':
-            ret = GdbCmdWriteReg(ptr, len - 1);
-            break;
-
-        /*
-         * Breakpoints
-         */
-        case 'z': /* __fallthrough */
-        case 'Z':
-            ret = GdbCmdBreak(ptr);
-            break;
-
-        /* What cause the pause  */
-        case '?':
-            OsGdbSendException(g_serialBuf, sizeof(g_serialBuf),
-                       GDB_EXCEPTION_BREAKPOINT);
-            break;
-
-        case 'H':
-            if (*ptr == 'g' || *ptr == 'c' || *ptr == 's') {
-                OsGdbSendPacket("OK", 2);
-            } else {
-                OsGdbSendPacket(NULL, 0);
-            }
-            break;
-
-        case 'R':
-            break;
-
-        /* Exit debug  */
-        case 'k':
-            GdbResetBkpts();
-            OsGdbArchRemoveAllHwBkpts();
-            OsGdbArchContinue();
-            state = EXIT;
-            g_exitDbg = 1;
-            break;
-
-        /*
-         * Not supported action
-         */
-        default:
-            OsGdbSendPacket(NULL, 0);
-            break;
-        } /* switch */
+        char ch = *(ptr++);
+        ret = g_gdbCmdHandlers[ch](ptr, len - 1);
 
         /*
          * If this is an recoverable error, send an error message to
@@ -659,6 +890,150 @@ static STUB_TEXT int GdbSerialStub()
     return 0;
 }
 
+#ifdef OS_OPTION_SMP
+
+static STUB_TEXT void GdbRoundupCores(void)
+{
+    U32 cid;
+    for (cid = g_firstCoreId; cid < OS_MAX_CORE_NUM; cid++) {
+        if (cid == OsGdbGetCoreID()) {
+            continue;
+        }
+        OsGdbArchForceStep(cid, true);
+    }
+    smp_mb();
+}
+
+static STUB_TEXT int GdbReturnNormal(U32 cid)
+{
+    if (g_coreId == g_prevCoreId || cid != g_coreId) {
+        OsGdbArchContinue(cid);
+    }
+    os_asm_invalidate_icache_all();
+    g_excState[cid] &= ~(DCPU_WANT_MASTER | DCPU_IS_SLAVE);
+    smp_mb();
+    atomic_dec(&g_dbgSlaves);
+    return 0;
+}
+
+static STUB_TEXT int OsGdbCpuEnter(int excState)
+{
+    int onlineCores = atomic_read(&g_onlineCores);
+    U32 cid = OsGdbGetCoreID();
+    g_excState[cid] |= excState;
+    if (g_exitDbg) {
+        raw_spin_lock(&g_dbgLock);
+        GdbDeactivateSwBkpts();
+        os_asm_invalidate_icache_all();
+        OsGdbArchContinue(cid);
+        raw_spin_unlock(&g_dbgLock);
+        return -1;
+    }
+    if (excState == DCPU_WANT_MASTER) {
+        atomic_inc(&g_dbgMasters);
+    } else {
+        atomic_inc(&g_dbgSlaves);
+    }
+acquirelock:
+
+    /* Make sure the above info reaches the primary CPU */
+    smp_mb();
+
+    /*
+     * CPU will loop if it is a slave or request to become a master cpu:
+     */
+    while (1) {
+        if (g_excState[cid] & DCPU_WANT_MASTER) {
+            if (raw_spin_trylock(&g_dbgMasterLock)) {
+                break;
+            }
+        } else if (g_excState[cid] & DCPU_IS_SLAVE) {
+            if (!raw_spin_is_locked(&g_dbgSlaveLock)) {
+                return GdbReturnNormal(cid);
+            }
+        } else {
+            return GdbReturnNormal(cid);
+        }
+        cpu_relax();
+    }
+
+    /*
+     * For single stepping, try to only enter on the processor that was single stepping.
+     */
+    if (atomic_read(&g_ssCoreId) != -1 && (cid != atomic_read(&g_ssCoreId))) {
+        raw_spin_unlock(&g_dbgMasterLock);
+        nop_delay(1000);
+        goto acquirelock;
+    }
+
+    /*
+     * Get the passive CPU lock which will hold all the non-primary
+     * CPU in a spin state while the debugger is active
+     */
+    if (!g_ssFlg) {
+        raw_spin_lock(&g_dbgSlaveLock);
+
+        /* Signal the other CPUs to enter kgdb_wait() */
+        if ((atomic_read(&g_dbgMasters) + atomic_read(&g_dbgSlaves)) != onlineCores) {
+            GdbRoundupCores();
+        }
+    }
+
+    /*
+     * Wait for the other CPUs to be notified and be waiting for us:
+     */
+    while ((atomic_read(&g_dbgMasters) + atomic_read(&g_dbgSlaves)) != onlineCores) {
+        nop_delay(1000);
+    }
+
+    /*
+     * At this point the primary processor is completely
+     * in the debugger and all secondary CPUs are quiescent
+     */
+    GdbDeactivateSwBkpts();
+    g_ssFlg = 0;
+    GdbSerialStub();
+    GdbActivateSwBkpts();
+    if (!g_ssFlg) {
+        raw_spin_unlock(&g_dbgSlaveLock);
+
+        /* Wait till all the CPUs have quit from the debugger. */
+        while (atomic_read(&g_dbgSlaves)) {
+            cpu_relax();
+        }
+    }
+
+    g_excState[cid] &= ~(DCPU_WANT_MASTER | DCPU_IS_SLAVE);
+
+    smp_mb();
+    atomic_dec(&g_dbgMasters);
+    raw_spin_unlock(&g_dbgMasterLock);
+    return 0;
+}
+
+STUB_TEXT int OsGdbStubSmpInit(void)
+{
+    U32 cid = OsGdbGetCoreID();
+
+    OsGdbSmpArchInit();
+    raw_spin_lock(&g_initLock);
+    atomic_inc(&g_onlineCores);
+    g_onlineBitmap |= (1U << cid);
+    raw_spin_unlock(&g_initLock);
+
+    return 0;
+}
+
+
+STUB_TEXT void OsGdbHandleException(void *stk)
+{
+    int excState = OsGdbArchPrepare(stk);
+    OsGdbArchDisableHwBkpts();
+    OsGdbCpuEnter(excState);
+    OsGdbArchCorrectHwBkpts();
+    OsGdbArchFinish(stk);
+}
+#else
 STUB_TEXT void OsGdbHandleException(void *stk)
 {
     g_gdbActive = 1;
@@ -671,11 +1046,11 @@ STUB_TEXT void OsGdbHandleException(void *stk)
     OsGdbArchFinish(stk);
     g_gdbActive = 0;
 }
+#endif
 
 STUB_TEXT int OsGdbReenterChk(void *stk)
 {
     (void)stk;
-
     return g_gdbActive;
 }
 
@@ -693,16 +1068,35 @@ static STUB_DATA struct NotifierBlock g_gdbNotifier = {
     .priority = 999,
 };
 
-STUB_TEXT int OsGdbStubInit(void)
+STUB_TEXT int OsGdbStubEarlyInit(void)
 {
+    GdbRegHandlers();
     OsGdbConfigInitMemRegions();
     if (OsGdbRingBufferInit()) {
         return -1;
     }
-
     OsRegisterDieNotifier(&g_gdbNotifier);
+#ifdef OS_OPTION_SMP
+    OsGdbStubSmpInit();
+#endif
     OsGdbArchInit();
-
-    return 0;
 }
 
+#ifdef OS_OPTION_SMP
+extern U32 g_cfgPrimaryCore;
+STUB_TEXT int OsGdbStubInit(void)
+{
+    U32 cid = OsGdbGetCoreID();
+    if (cid == g_cfgPrimaryCore) {
+        g_firstCoreId = g_cfgPrimaryCore;
+        return OsGdbStubEarlyInit();
+    }
+    return OsGdbStubSmpInit();
+}
+#else
+STUB_TEXT int OsGdbStubInit(void)
+{
+    g_firstCoreId = 0;
+    return OsGdbStubEarlyInit();
+}
+#endif
