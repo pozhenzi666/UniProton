@@ -46,7 +46,8 @@
 #define OS_KP920_LITE       0x0e
 #define OS_HI3095           0x0f
 #define OS_D9_SECURE        0x10
-#define OS_CPU_TYPE_INVALID 0x11
+#define OS_SD3403           0x11
+#define OS_CPU_TYPE_INVALID 0x12
 
 #ifndef INIT_SEC_L4_TEXT
 #define INIT_SEC_L4_TEXT 

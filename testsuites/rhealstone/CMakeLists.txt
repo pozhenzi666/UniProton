@@ -46,7 +46,9 @@ if (${CPU_TYPE} STREQUAL "ascend310b" OR
     ${CPU_TYPE} STREQUAL "rk3568_jailhouse" OR
     ${CPU_TYPE} STREQUAL "rk3588" OR
     ${CPU_TYPE} STREQUAL "e2000q" OR
-    ${CPU_TYPE} STREQUAL "x86_64" OR ${CPU_TYPE} STREQUAL "armv8")
+    ${CPU_TYPE} STREQUAL "x86_64" OR
+    ${CPU_TYPE} STREQUAL "armv8" OR
+    ${CPU_TYPE} STREQUAL "sd3403")
     add_library(rhealstoneTest OBJECT ${ALL_SRC} ./support/banchmark_support.c)
     target_include_directories(rhealstoneTest PUBLIC ./support)
 endif()
