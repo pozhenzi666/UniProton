@@ -173,6 +173,10 @@ INIT_SEC_L4_TEXT void OsExcHandleEntry(U32 excType, struct ExcRegInfo *excRegs)
     OsErrRecord(OsExcCallstackPrintf(excInfo));
 #endif
 
+#if defined(OS_OPTION_COREDUMP)
+    coredump(excInfo);
+#endif
+
     /* 回调异常钩子函数 */
     OsExcHookHandle();
 }
