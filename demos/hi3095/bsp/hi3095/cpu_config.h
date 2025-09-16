@@ -11,7 +11,18 @@
 #define MMU_LOG_MEM_ADDR           0xd3000000ULL
 #define MMU_DRIVER_ADDR1           0x0c000000ULL
 #define MMU_DRIVER_ADDR2           0x08600000ULL
-
+#define MMU_IO_CONFIG_ADDR         0x18960000ULL
+#define MMU_IO_CONFIG_T_ADDR       0x8745000ULL
+#define MMU_WDG_ADDR               0x18700000ULL
+#define MMU_DMAC_ADDR              0x18900000ULL
+#define MMU_I2C_ADDR               0x18400000ULL
+#define MMU_LOCALBUS_ADDR          0x18860000ULL
+#define MMU_RESERVED_ADDR          0x26000000ULL
+#define MMU_SPI_ADDR               0x187B0000ULL
+#define MMU_GMAC_HP_ADDR           0x1d200000ULL
+#define MMU_GMAC_HOST_ADDR         0x1E810000ULL
+#define MMU_MDIO_ADDR              0x183F0000ULL
+#define MMU_HP_SUBSYS_ADDR         0x1C030000ULL
 #define UART_BASE_ADDR             MMU_UART_ADDR
 
 #if defined(GUEST_OS)

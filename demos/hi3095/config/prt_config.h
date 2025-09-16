@@ -95,7 +95,7 @@ extern "C" {
 #if defined(GUEST_OS)
 #define OS_MEM_FSC_PT_SIZE                              0x80000
 #else
-#define OS_MEM_FSC_PT_SIZE                              0x1d000000
+#define OS_MEM_FSC_PT_SIZE                              0x80000
 #endif
 
 /* ***************************** 配置信号量管理模块 ************************* */

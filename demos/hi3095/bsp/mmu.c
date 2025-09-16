@@ -55,7 +55,7 @@ static mmu_mmap_region_s g_mem_map_info[] = {
     }, {    
         .virt      = MMU_UART_ADDR,
         .phys      = MMU_UART_ADDR,
-        .size      = 0x2000,
+        .size      = 0xb0000,
         .max_level = 0x2,
         .attrs     = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
     }, {
@@ -74,6 +74,78 @@ static mmu_mmap_region_s g_mem_map_info[] = {
         .virt  = MMU_DRIVER_ADDR2,
         .phys  = MMU_DRIVER_ADDR2,
         .size  = 0x17FFFF,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_IO_CONFIG_ADDR,
+        .phys = MMU_IO_CONFIG_ADDR,
+        .size = 0x10000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_IO_CONFIG_T_ADDR,
+        .phys = MMU_IO_CONFIG_T_ADDR,
+        .size = 0x10000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_WDG_ADDR,
+        .phys = MMU_WDG_ADDR,
+        .size = 0x50000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_DMAC_ADDR,
+        .phys = MMU_DMAC_ADDR,
+        .size = 0x10000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_I2C_ADDR,
+        .phys = MMU_I2C_ADDR,
+        .size = 0x100000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_LOCALBUS_ADDR,
+        .phys = MMU_LOCALBUS_ADDR,
+        .size = 0x200,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_RESERVED_ADDR,
+        .phys = MMU_RESERVED_ADDR,
+        .size = 0x40000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_SPI_ADDR,
+        .phys = MMU_SPI_ADDR,
+        .size = 0x20000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RW,
+    }, {
+        .virt = MMU_GMAC_HP_ADDR,
+        .phys = MMU_GMAC_HP_ADDR,
+        .size = 0x40000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_GMAC_HOST_ADDR,
+        .phys = 0x1E810000,
+        .size = 0x40000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_MDIO_ADDR,
+        .phys = MMU_MDIO_ADDR,
+        .size = 0x10000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_HP_SUBSYS_ADDR,
+        .phys = MMU_HP_SUBSYS_ADDR,
+        .size = 0x10000,
         .max_level = 0x2,
         .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
     }
