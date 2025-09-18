@@ -20,9 +20,11 @@
 #define MMU_RESERVED_ADDR          0x26000000ULL
 #define MMU_SPI_ADDR               0x187B0000ULL
 #define MMU_GMAC_HP_ADDR           0x1d200000ULL
-#define MMU_GMAC_HOST_ADDR         0x1E810000ULL
+#define MMU_GMAC_HOST_ADDR         0x1E800000ULL
 #define MMU_MDIO_ADDR              0x183F0000ULL
 #define MMU_HP_SUBSYS_ADDR         0x1C030000ULL
+#define MMU_HOST_SUBSYS_ADDR       0x1E0E0000ULL
+
 #define UART_BASE_ADDR             MMU_UART_ADDR
 
 #if defined(GUEST_OS)
