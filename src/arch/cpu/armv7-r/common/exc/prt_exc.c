@@ -14,6 +14,7 @@
  */
 
 #include "prt_exc_internal.h"
+#include "prt_coredump.h"
 
 OS_SEC_BSS ExcTaskInfoFunc g_excTaskInfoGet;
 extern uintptr_t __exc_stack_top;
@@ -146,6 +147,10 @@ INIT_SEC_L4_TEXT void OsExcHandleEntry(U32 excType, struct ExcRegInfo *excRegs)
 
     /* 记录异常信息 */
     OsExcSaveInfo(excInfo, excRegs);
+
+#if defined(OS_OPTION_COREDUMP)
+    coredump(excInfo);
+#endif
 
     /* 回调异常钩子函数 */
     OsExcHookHandle();

@@ -19,6 +19,10 @@ if(${CONFIG_OS_GDB_STUB})
     add_subdirectory(component/gdbstub)
 endif()
 
+if(${CONFIG_OS_OPTION_COREDUMP})
+    add_subdirectory(component/coredump)
+endif()
+
 if(${CONFIG_OS_SUPPORT_CXX})
     add_subdirectory(component/cxx)
 endif()
