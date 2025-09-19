@@ -132,7 +132,7 @@ static mmu_mmap_region_s g_mem_map_info[] = {
         .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
     }, {
         .virt = MMU_GMAC_HOST_ADDR,
-        .phys = 0x1E810000,
+        .phys = MMU_GMAC_HOST_ADDR,
         .size = 0x40000,
         .max_level = 0x2,
         .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
@@ -145,6 +145,12 @@ static mmu_mmap_region_s g_mem_map_info[] = {
     }, {
         .virt = MMU_HP_SUBSYS_ADDR,
         .phys = MMU_HP_SUBSYS_ADDR,
+        .size = 0x10000,
+        .max_level = 0x2,
+        .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
+    }, {
+        .virt = MMU_HOST_SUBSYS_ADD,
+        .phys = MMU_HOST_SUBSYS_ADD,
         .size = 0x10000,
         .max_level = 0x2,
         .attrs = MMU_ATTR_DEVICE_NGNRNE | MMU_ACCESS_RWX,
